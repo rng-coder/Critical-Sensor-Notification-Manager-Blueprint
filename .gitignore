@@ -1,0 +1,31 @@
+# Secrets and local configuration
+secrets.yaml
+.env
+.env.*
+*.secret
+
+# Home Assistant runtime data
+.storage/
+*.db
+*.db-shm
+*.db-wal
+home-assistant_v2.db*
+
+# Backups and archives
+*.tar
+*.tar.gz
+*.zip
+*.bak
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Python / tooling caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
