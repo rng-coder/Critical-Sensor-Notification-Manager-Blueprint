@@ -86,28 +86,28 @@ blueprint:
       description: Title used for the initial critical notification.
       default: "🚨 CRITICAL ALERT"
       selector:
-        text:
+        text: {}
 
     reminder_title:
       name: Reminder title
       description: Title used for reminder notifications.
       default: "🚨 CRITICAL ALERT REMINDER"
       selector:
-        text
+        text: {}
 
     acknowledged_title:
       name: Acknowledged title
       description: Title sent after the notification action is acknowledged.
       default: "✅ CRITICAL ALERT ACKNOWLEDGED"
       selector:
-        text
+        text: {}
 
     cleared_title:
       name: Cleared title
       description: Title sent when the triggering sensor returns to off.
       default: "💧 CRITICAL ALERT CLEARED"
       selector:
-        text
+        text: {}
 
 mode: parallel
 max: 20
