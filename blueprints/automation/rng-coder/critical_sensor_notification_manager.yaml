@@ -2,10 +2,9 @@ blueprint:
   name: Critical Sensor Notification Manager
   description: >-
     Monitor one or more binary sensors and send a persistent, actionable
-    critical notification when any sensor turns on. The automation tracks each
-    sensor independently, sends configurable reminders, supports a unique
-    acknowledgement action for every run, and clears the persistent alert when
-    the triggering sensor returns to off.
+    critical notification when any sensor turns on. Each sensor activation is
+    tracked independently, with configurable reminders, acknowledgement,
+    critical sound, and recovery handling.
   domain: automation
   author: rng-coder
   homeassistant:
@@ -29,8 +28,8 @@ blueprint:
       name: Notification recipients
       description: >-
         One or more notify entities that should receive the alert. Mobile App
-        notify entities support the Acknowledge action and critical sound;
-        other notify platforms receive the normal notification payload.
+        notify entities support the acknowledgement action and critical sound;
+        other notify platforms receive the standard notification payload.
       selector:
         target:
           entity:
@@ -52,9 +51,9 @@ blueprint:
       name: Number of reminders
       description: >-
         Number of reminder notifications sent after the initial alert. With
-        the default of 2 and a 5-minute interval, reminders are sent at 5 and
-        10 minutes. The automation then watches for acknowledgement or clear
-        until the next interval expires, so reminders stop at 15 minutes.
+        the default of 2 and a 5-minute interval, reminders are sent at
+        approximately 5 and 10 minutes. The automation then waits one final
+        interval for acknowledgement or recovery.
       default: 2
       selector:
         number:
@@ -67,8 +66,8 @@ blueprint:
       name: Critical sound
       description: >-
         Send the iOS critical-alert sound payload. Mobile App integrations
-        that support critical alerts will play the notification sound even
-        when the device is muted or in a Focus/Do Not Disturb mode.
+        that support critical alerts can play the sound even when the device
+        is muted or in a Focus/Do Not Disturb mode.
       default: true
       selector:
         boolean:
@@ -94,21 +93,21 @@ blueprint:
       description: Title used for reminder notifications.
       default: "🚨 CRITICAL ALERT REMINDER"
       selector:
-        text
+        text:
 
     acknowledged_title:
       name: Acknowledged title
       description: Title sent after the notification action is acknowledged.
       default: "✅ CRITICAL ALERT ACKNOWLEDGED"
       selector:
-        text
+        text:
 
     cleared_title:
       name: Cleared title
       description: Title sent when the triggering sensor returns to off.
       default: "💧 CRITICAL ALERT CLEARED"
       selector:
-        text
+        text:
 
 mode: parallel
 max: 20
@@ -117,11 +116,9 @@ max_exceeded: warning
 triggers:
   - trigger: state
     entity_id: !input sensors
-    from: "off"
     to: "on"
 
 variables:
-  notification_targets: !input notification_targets
   reminder_interval: !input reminder_interval
   reminder_count: !input reminder_count
   critical_sound: !input critical_sound
@@ -132,7 +129,6 @@ variables:
   cleared_title: !input cleared_title
   sensor_entity: "{{ trigger.entity_id }}"
   sensor_name: "{{ entity_name(trigger.entity_id) | default(trigger.entity_id, true) }}"
-  sensor_area: "{{ area_name(trigger.entity_id) | default('', true) }}"
   location_name: >-
     {% if area_name(trigger.entity_id) %}
       {{ area_name(trigger.entity_id) }}
@@ -141,12 +137,12 @@ variables:
     {% endif %}
   notification_id: >-
     critical_sensor_{{ trigger.entity_id | replace('.', '_') }}
-  ack_action: "CRITICAL_SENSOR_ACK_{{ context.id }}"
+  ack_action: "CRITICAL_SENSOR_ACK_{{ context.id | replace('-', '') }}"
 
 conditions: []
 
 actions:
-  - alias: Set the active persistent notification
+  - alias: Create persistent alert
     if:
       - condition: template
         value_template: "{{ persistent_alert }}"
@@ -166,7 +162,7 @@ actions:
 
             This alert remains active until the sensor returns to normal.
 
-  - alias: Send the initial critical notification
+  - alias: Send initial critical notification
     choose:
       - conditions:
           - condition: template
@@ -207,7 +203,30 @@ actions:
               - action: "{{ ack_action }}"
                 title: "ACKNOWLEDGE ALERT"
 
-  - alias: Send scheduled reminders and watch for acknowledgement or clear
+  - alias: Handle an immediate recovery before the wait begins
+    if:
+      - condition: state
+        entity_id: "{{ sensor_entity }}"
+        state: "off"
+    then:
+      - if:
+          - condition: template
+            value_template: "{{ persistent_alert }}"
+        then:
+          - action: persistent_notification.dismiss
+            data:
+              notification_id: "{{ notification_id }}"
+      - action: notify.send_message
+        target: !input notification_targets
+        data:
+          title: "{{ cleared_title }}"
+          message: >-
+            ✅ The critical condition at {{ location_name }} has already cleared.
+
+            Sensor: {{ sensor_name }}
+      - stop: Sensor cleared before reminder tracking started
+
+  - alias: Send scheduled reminders
     repeat:
       count: "{{ reminder_count }}"
       sequence:
@@ -312,7 +331,7 @@ actions:
                             - action: "{{ ack_action }}"
                               title: "ACKNOWLEDGE ALERT"
 
-  - alias: Final grace period before ending reminders
+  - alias: Final grace period
     wait_for_trigger:
       - trigger: event
         event_type: mobile_app_notification_action
@@ -326,7 +345,7 @@ actions:
       minutes: "{{ reminder_interval }}"
     continue_on_timeout: true
 
-  - alias: Handle final acknowledgement or clear
+  - alias: Handle final acknowledgement or recovery
     choose:
       - conditions:
           - condition: template
