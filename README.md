@@ -66,9 +66,31 @@ Each sensor activation creates its own parallel automation run. The run has a un
 
 The persistent notification ID is also derived from the triggering entity, preventing simultaneous sensors from overwriting each other's Home Assistant persistent alert.
 
-## Current status
+## Repository security
 
-This repository contains the initial v1 blueprint. The YAML should be validated in the target Home Assistant installation before being considered production-ready. Future versions can add escalation levels, custom sounds, quiet-hours handling, notification tags, additional recovery behavior, and optional repeat-until-clear modes.
+This repository is public and intentionally contains reusable blueprint code only. It must never contain a Home Assistant backup, `secrets.yaml`, `.storage/` data, passwords, access tokens, API keys, or private personal configuration.
+
+The repository includes:
+
+- `.gitignore` rules for Home Assistant runtime data, secrets, backups, and common local files.
+- `SECURITY.md` with private vulnerability-reporting guidance.
+- `.github/CODEOWNERS` assigning repository ownership to `@rng-coder`.
+- An MIT `LICENSE`.
+
+GitHub **secret scanning**, **push protection**, and **code scanning** should remain enabled. For stronger `main`-branch protection, configure a GitHub ruleset requiring pull requests and, once useful CI checks exist, successful status checks before merging. GitHub supports requiring code-owner review as part of branch protection. 
+
+## Validation status
+
+The blueprint has been reviewed against the current Home Assistant blueprint, selector, notification, and wait-for-trigger syntax. It is designed for Home Assistant 2026.9 or newer.
+
+The final validation step is importing the blueprint into a real Home Assistant instance and testing the notification behavior. Recommended test order:
+
+1. One test binary sensor.
+2. Initial notification and critical sound.
+3. Acknowledge action.
+4. Five- and ten-minute reminders.
+5. Sensor recovery.
+6. Two sensors active simultaneously.
 
 ## License
 
