@@ -1,0 +1,6 @@
+# Repository owner reviews all project and security changes.
+* @rng-coder
+
+# Keep ownership of the security policy and GitHub configuration explicit.
+/.github/ @rng-coder
+/SECURITY.md @rng-coder
