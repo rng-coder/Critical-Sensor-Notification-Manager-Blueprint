@@ -93,21 +93,21 @@ blueprint:
       description: Title used for reminder notifications.
       default: "🚨 CRITICAL ALERT REMINDER"
       selector:
-        text:
+        text
 
     acknowledged_title:
       name: Acknowledged title
       description: Title sent after the notification action is acknowledged.
       default: "✅ CRITICAL ALERT ACKNOWLEDGED"
       selector:
-        text:
+        text
 
     cleared_title:
       name: Cleared title
       description: Title sent when the triggering sensor returns to off.
       default: "💧 CRITICAL ALERT CLEARED"
       selector:
-        text:
+        text
 
 mode: parallel
 max: 20
@@ -205,9 +205,8 @@ actions:
 
   - alias: Handle an immediate recovery before the wait begins
     if:
-      - condition: state
-        entity_id: "{{ sensor_entity }}"
-        state: "off"
+      - condition: template
+        value_template: "{{ is_state(sensor_entity, 'off') }}"
     then:
       - if:
           - condition: template
