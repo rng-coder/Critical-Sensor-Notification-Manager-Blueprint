@@ -1,0 +1,363 @@
+blueprint:
+  name: Critical Sensor Notification Manager
+  description: >-
+    Monitor one or more binary sensors and send a persistent, actionable
+    critical notification when any sensor turns on. The automation tracks each
+    sensor independently, sends configurable reminders, supports a unique
+    acknowledgement action for every run, and clears the persistent alert when
+    the triggering sensor returns to off.
+  domain: automation
+  author: rng-coder
+  homeassistant:
+    min_version: 2026.9.0
+  source_url: https://github.com/rng-coder/Critical-Sensor-Notification-Manager-Blueprint
+
+  input:
+    sensors:
+      name: Critical sensors
+      description: >-
+        Binary sensors that represent a critical condition. Each selected
+        sensor is tracked independently, so multiple active sensors can be
+        handled at the same time.
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: binary_sensor
+
+    notification_targets:
+      name: Notification recipients
+      description: >-
+        One or more notify entities that should receive the alert. Mobile App
+        notify entities support the Acknowledge action and critical sound;
+        other notify platforms receive the normal notification payload.
+      selector:
+        target:
+          entity:
+            - domain: notify
+
+    reminder_interval:
+      name: Reminder interval
+      description: Minutes between the initial alert and each reminder.
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 60
+          step: 1
+          mode: slider
+          unit_of_measurement: min
+
+    reminder_count:
+      name: Number of reminders
+      description: >-
+        Number of reminder notifications sent after the initial alert. With
+        the default of 2 and a 5-minute interval, reminders are sent at 5 and
+        10 minutes. The automation then watches for acknowledgement or clear
+        until the next interval expires, so reminders stop at 15 minutes.
+      default: 2
+      selector:
+        number:
+          min: 0
+          max: 10
+          step: 1
+          mode: slider
+
+    critical_sound:
+      name: Critical sound
+      description: >-
+        Send the iOS critical-alert sound payload. Mobile App integrations
+        that support critical alerts will play the notification sound even
+        when the device is muted or in a Focus/Do Not Disturb mode.
+      default: true
+      selector:
+        boolean:
+
+    persistent_alert:
+      name: Persistent Home Assistant alert
+      description: >-
+        Keep an alert in the Home Assistant notification panel until the
+        triggering sensor returns to off.
+      default: true
+      selector:
+        boolean:
+
+    alert_title:
+      name: Alert title
+      description: Title used for the initial critical notification.
+      default: "🚨 CRITICAL ALERT"
+      selector:
+        text:
+
+    reminder_title:
+      name: Reminder title
+      description: Title used for reminder notifications.
+      default: "🚨 CRITICAL ALERT REMINDER"
+      selector:
+        text
+
+    acknowledged_title:
+      name: Acknowledged title
+      description: Title sent after the notification action is acknowledged.
+      default: "✅ CRITICAL ALERT ACKNOWLEDGED"
+      selector:
+        text
+
+    cleared_title:
+      name: Cleared title
+      description: Title sent when the triggering sensor returns to off.
+      default: "💧 CRITICAL ALERT CLEARED"
+      selector:
+        text
+
+mode: parallel
+max: 20
+max_exceeded: warning
+
+triggers:
+  - trigger: state
+    entity_id: !input sensors
+    from: "off"
+    to: "on"
+
+variables:
+  notification_targets: !input notification_targets
+  reminder_interval: !input reminder_interval
+  reminder_count: !input reminder_count
+  critical_sound: !input critical_sound
+  persistent_alert: !input persistent_alert
+  alert_title: !input alert_title
+  reminder_title: !input reminder_title
+  acknowledged_title: !input acknowledged_title
+  cleared_title: !input cleared_title
+  sensor_entity: "{{ trigger.entity_id }}"
+  sensor_name: "{{ entity_name(trigger.entity_id) | default(trigger.entity_id, true) }}"
+  sensor_area: "{{ area_name(trigger.entity_id) | default('', true) }}"
+  location_name: >-
+    {% if area_name(trigger.entity_id) %}
+      {{ area_name(trigger.entity_id) }}
+    {% else %}
+      {{ entity_name(trigger.entity_id) | default(trigger.entity_id, true) }}
+    {% endif %}
+  notification_id: >-
+    critical_sensor_{{ trigger.entity_id | replace('.', '_') }}
+  ack_action: "CRITICAL_SENSOR_ACK_{{ context.id }}"
+
+conditions: []
+
+actions:
+  - alias: Set the active persistent notification
+    if:
+      - condition: template
+        value_template: "{{ persistent_alert }}"
+    then:
+      - action: persistent_notification.create
+        data:
+          notification_id: "{{ notification_id }}"
+          title: "{{ alert_title }}"
+          message: >-
+            **Location:** {{ location_name }}
+
+            **Sensor:** {{ sensor_name }}
+
+            The critical sensor has activated.
+
+            **Detected:** {{ now().strftime('%Y-%m-%d %I:%M %p') }}
+
+            This alert remains active until the sensor returns to normal.
+
+  - alias: Send the initial critical notification
+    choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ critical_sound }}"
+        sequence:
+          - action: notify.send_message
+            target: !input notification_targets
+            data:
+              title: "{{ alert_title }}"
+              message: >-
+                📍 {{ location_name }}
+
+                {{ sensor_name }} has activated.
+
+                Acknowledge this alert to stop reminders.
+              data:
+                push:
+                  sound:
+                    name: default
+                    critical: 1
+                    volume: 1.0
+                actions:
+                  - action: "{{ ack_action }}"
+                    title: "ACKNOWLEDGE ALERT"
+    default:
+      - action: notify.send_message
+        target: !input notification_targets
+        data:
+          title: "{{ alert_title }}"
+          message: >-
+            📍 {{ location_name }}
+
+            {{ sensor_name }} has activated.
+
+            Acknowledge this alert to stop reminders.
+          data:
+            actions:
+              - action: "{{ ack_action }}"
+                title: "ACKNOWLEDGE ALERT"
+
+  - alias: Send scheduled reminders and watch for acknowledgement or clear
+    repeat:
+      count: "{{ reminder_count }}"
+      sequence:
+        - alias: Wait for acknowledgement, sensor clear, or reminder timeout
+          wait_for_trigger:
+            - trigger: event
+              event_type: mobile_app_notification_action
+              event_data:
+                action: "{{ ack_action }}"
+              id: acknowledged
+            - trigger: template
+              value_template: "{{ is_state(sensor_entity, 'off') }}"
+              id: cleared
+          timeout:
+            minutes: "{{ reminder_interval }}"
+          continue_on_timeout: true
+
+        - alias: Handle acknowledgement, clear, or reminder timeout
+          choose:
+            - conditions:
+                - condition: template
+                  value_template: "{{ wait.trigger is not none and wait.trigger.id == 'acknowledged' }}"
+              sequence:
+                - action: notify.send_message
+                  target: !input notification_targets
+                  data:
+                    title: "{{ acknowledged_title }}"
+                    message: >-
+                      The alert from {{ location_name }} has been acknowledged.
+
+                      Reminders have stopped. The alert will remain active until
+                      the sensor returns to normal.
+                - stop: Alert acknowledged
+
+            - conditions:
+                - condition: template
+                  value_template: "{{ wait.trigger is not none and wait.trigger.id == 'cleared' }}"
+              sequence:
+                - if:
+                    - condition: template
+                      value_template: "{{ persistent_alert }}"
+                  then:
+                    - action: persistent_notification.dismiss
+                      data:
+                        notification_id: "{{ notification_id }}"
+                - action: notify.send_message
+                  target: !input notification_targets
+                  data:
+                    title: "{{ cleared_title }}"
+                    message: >-
+                      ✅ The critical condition at {{ location_name }} has cleared.
+
+                      Sensor: {{ sensor_name }}
+                - stop: Sensor cleared
+
+            - conditions:
+                - condition: template
+                  value_template: "{{ wait.trigger is none }}"
+              sequence:
+                - alias: Send reminder
+                  choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ critical_sound }}"
+                      sequence:
+                        - action: notify.send_message
+                          target: !input notification_targets
+                          data:
+                            title: "{{ reminder_title }}"
+                            message: >-
+                              📍 {{ location_name }}
+
+                              {{ sensor_name }} is still active.
+
+                              This is reminder {{ repeat.index }} of {{ reminder_count }}.
+
+                              Acknowledge this alert to stop further reminders.
+                            data:
+                              push:
+                                sound:
+                                  name: default
+                                  critical: 1
+                                  volume: 1.0
+                              actions:
+                                - action: "{{ ack_action }}"
+                                  title: "ACKNOWLEDGE ALERT"
+                  default:
+                    - action: notify.send_message
+                      target: !input notification_targets
+                      data:
+                        title: "{{ reminder_title }}"
+                        message: >-
+                          📍 {{ location_name }}
+
+                          {{ sensor_name }} is still active.
+
+                          This is reminder {{ repeat.index }} of {{ reminder_count }}.
+
+                          Acknowledge this alert to stop further reminders.
+                        data:
+                          actions:
+                            - action: "{{ ack_action }}"
+                              title: "ACKNOWLEDGE ALERT"
+
+  - alias: Final grace period before ending reminders
+    wait_for_trigger:
+      - trigger: event
+        event_type: mobile_app_notification_action
+        event_data:
+          action: "{{ ack_action }}"
+        id: acknowledged
+      - trigger: template
+        value_template: "{{ is_state(sensor_entity, 'off') }}"
+        id: cleared
+    timeout:
+      minutes: "{{ reminder_interval }}"
+    continue_on_timeout: true
+
+  - alias: Handle final acknowledgement or clear
+    choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ wait.trigger is not none and wait.trigger.id == 'acknowledged' }}"
+        sequence:
+          - action: notify.send_message
+            target: !input notification_targets
+            data:
+              title: "{{ acknowledged_title }}"
+              message: >-
+                The alert from {{ location_name }} has been acknowledged.
+
+                Reminders have stopped. The alert will remain active until the
+                sensor returns to normal.
+
+      - conditions:
+          - condition: template
+            value_template: "{{ wait.trigger is not none and wait.trigger.id == 'cleared' }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ persistent_alert }}"
+            then:
+              - action: persistent_notification.dismiss
+                data:
+                  notification_id: "{{ notification_id }}"
+          - action: notify.send_message
+            target: !input notification_targets
+            data:
+              title: "{{ cleared_title }}"
+              message: >-
+                ✅ The critical condition at {{ location_name }} has cleared.
+
+                Sensor: {{ sensor_name }}
